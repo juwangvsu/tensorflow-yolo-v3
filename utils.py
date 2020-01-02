@@ -182,12 +182,18 @@ def non_max_suppression(predictions_with_boxes, confidence_threshold, iou_thresh
     conf_mask = np.expand_dims(
         (predictions_with_boxes[:, :, 4] > confidence_threshold), -1)
     predictions = predictions_with_boxes * conf_mask
-
+    print('conf shold: ', predictions_with_boxes.shape, predictions_with_boxes[:,:,4])
+    print('pred after threshold: ', predictions.shape, predictions)
     result = {}
     for i, image_pred in enumerate(predictions):
         shape = image_pred.shape
-        non_zero_idxs = np.nonzero(image_pred)
-        image_pred = image_pred[non_zero_idxs]
+        print('i, shape, image_pred : ', i, image_pred.shape, image_pred)
+      #  non_zero_idxs = np.nonzero(image_pred)
+	#1/2/2020 fix: select nonzero rows based on [:,4] conf value
+        non_zero_idxs = np.nonzero(image_pred[:,4])
+        print('non_zero_idxs shape, idxs: ', non_zero_idxs[0].shape, non_zero_idxs)
+        image_pred = image_pred[non_zero_idxs[0]]
+        print('shape , image_pred remove zero: ', image_pred.shape, image_pred)
         image_pred = image_pred.reshape(-1, shape[-1])
 
         bbox_attrs = image_pred[:, :5]

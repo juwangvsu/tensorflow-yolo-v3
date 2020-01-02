@@ -1,0 +1,785 @@
+# Deep-Learning
+# jwang note 7/9/18
+
+--- sticky -------------------------
+to use python3 + tensorflow, do "export PYTHONPATH=", then use "python3 ..."
+	msi ub16 (sda9)
+	ex: /media/student/code1/tensorflow-yolo-v3
+
+------------7/24/2019----------
+obj_video.py         -- test video detection
+obj_video_droneimg.py -- run detection on given model and video file 
+			works well on python2.7
+obj_video_droneimg3.py -- for both python2 and 3, step through image mode
+			for python3, modify PYTHONPATH=/home/student/tensorflow/models-master/research:/home/student/tensorflow/models-master/research/slim, 
+				python3 -m pip install matplotlib moviepy
+obj_detect_node.py -- ros node sub to drone img real time
+			/ardrone1/image_raw
+code1/darknet ----------- deep learning c framework, work with both cpu and gpu
+		works with cuda 9 and cuda 10
+
+---1/1-2/2020 tensorflow-yolo-v3 test tf1.14 gpu-----------------------
+msd, sda19, python3, 1.14-gpu
+out of memory, add growth , reshape error in func non_max_suppression(), but detection complete.
+(1) convert yolov3.weights to model.check, (2) convert model.check to frozen graph, (3) run demo
+python3 demo.py --input_img dog2.jpg --output_img rst.jpg --frozen_model frozen_darknet_yolov3_model.pb
+(4) eog rst.jpg
+
+test with docker image, 1.14.0-gpu-py3, install pillow have some error about reshape, same as native tf-14-gpu, 
+		jwang3vsu/tensorflow:tf1.14-keras, update with Pillow		
+test with docker image, 1.12.0-gpu-py3, have some unknow error when import loading frozengraph 
+
+1/2/20: non_max_suppression() fixed. bug caused by selecting nonzero image_pred
+	all element wise. image_pred shape [10647,85], each row is a box. 
+	select nonzero row based on image_pred[:,4] confidence value,
+	play with #confidence_threshold=0.4 (demo.py) to show many boxes 
+	in result
+
+----12/31/2019 tensorflow keras gpu regression test launch_uavcam ---------
+
+python script used in launch_uavcam setup, where tensorflow is used need to be
+regression tested with the tensorflow gpu version
+
+TBD
+
+----12/31/2019 tensorflow keras gpu test nvidia geforce 2080 ---------------
+--homepc, sda19, 1tb ssd #5, 
+--tensorflow/tensorflow:latest-gpu-py3, install opencv-python, keras, and apt
+	install libsm6 libxext6 libxrender-dev
+
+	T1,T2,T4 pass,
+	T3 /cuda/cuda_dnn.cc:329] Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR
+	T5 fail, E tensorflow/stream_executor/cuda/cuda_dnn.cc:329] Could not create cudnn handle: CUDNN_STATUS_INTERNAL_ERROR
+
+is it tensorflow-gpu 1.14 have trouble with cudnn when run on gtx 2080? all T1/2/3/4/5 good in msi laptop with gtx 1060 (laptop)
+
+Fixed:
+add the following code to python script:
+	from tensorflow.compat.v1 import ConfigProto
+	from tensorflow.compat.v1 import InteractiveSession
+	config = ConfigProto()
+	config.gpu_options.allow_growth = True
+	session = InteractiveSession(config=config)
+
+after fixe, T3 test 29s 3ms/step per epoch in docker latest-gpu-py3 @rtx 2080
+after fixe, T3 test 75s 7ms/step per epoch in msi laptop gtx 1060 
+
+----12/30/2019 tensorflow keras gpu in docker --------------
+msi, sda19, nvidia 430.64 open src, cuda10
+/home/student/vrx/tf1.14-keras/Dockerfile
+base image is tensorflow-gpu-python3 from tensorflow's docker repo,
+added opencv and keras.
+create a local image tagged tf1.14-keras
+        docker build --tag=tf1.14-keras .
+
+run the image with current directory mounted in the /app
+        docker run --gpus all -it --rm -v "${PWD}:/app" tf1.14-keras bash or
+        docker run --gpus all --rm -it -v "${PWD}:/app" jwang3vsu/tensorflow:tf1.14-keras bash
+        docker run --gpus all -it --rm -v "${PWD}:/app" tensorflow/tensorflow:latest-gpu-py3 bash
+        cd /app; python3 test_inception_keras.py
+        this will run the test script using tensorflow gpu and keras
+
+create a copy of the image after run the test code which will download cifa dataset and 
+        retag it:
+        docker commit sweet_raman jwang3vsu/tensorflow:tf1.14-kerasa
+        docker push jwang3vsu/tensorflow:tf1.14-kerasa
+
+to run docker image:
+tensorflow/tensorflow   latest-gpu-py3 tf2.0 cuda10.0 cudnn7.6
+jwang3vsu/tensorflow    tf1.14-keras	tf1.14 cuda10.0 cudnn7.4 keras 2.3.1 cv2
+tensorflow/tensorflow   1.14.0-gpu-py3  tf1.14 cuda10.0 cudnn7.4
+
+----12/29/2019 tensorflow keras version gpu test T1/2/3/4---------------
+Check gpu work in tf:
+	from tensorflow.python.client import device_lib
+	device_lib.list_local_devices()
+	import tensorflow as tf; print(tf.__version__)
+Check keras version
+python -c 'import keras; print(keras.__version__)'
+
+/media/student/cuda/faster_rcnn_inception_keras_test_script
+T3: Test_inception_keras.py
+T1: test_tensorflowgpu.py
+/media/student/code1/darknet
+T2: ./darknet detect cfg/yolov3.cfg weights-trained/yolov3.weights dog2.jpg
+T4: (12/15/2019) ./darknet detector train tagreal/darknet_tagreal.data tagreal/darknet-yolov3.cfg backup/darknet-yolov3.backup > train-tagreal.log4
+T5:	cd /.../tensorflow video/
+	python3 obj_video_droneimg3.py ardrone1 ssd_mobilenet_v2_coco_2018_03_29 mscoco_label_map.pbtxt True
+
+T2 should produce:
+	dog2.jpg: Predicted in 0.042558 seconds.
+	dog: 97%
+
+T1 should produce:
+	 Created TensorFlow device (/job:localhost/replica:0/task:0/device:GPU:0 with 5279 MB memory) -> physical GPU (device: 0, name: GeForce GTX 1060, pci bus id: 0000:01:00.0, compute capability: 6.1)
+[[22. 28.]
+ [49. 64.]]
+
+T4 result should be: grep avg train-tagreal.log4
+	1493: 0.127616, 0.133654 avg, 0.001000 rate, 4.645405 seconds, 47776 images
+
+418 not very stable, if not working, boot to part9 where 390 will set gpu right, then rebbot to sda16, multple reboot might required. Untile the T1 ok
+
+--------12/29/2019 msi ub16  nvidia gpu compile darknet------
+	sda16, driver 418, cuda 10.0 cudnn 7.4
+ follow "12/8/2019 msi ub16 setup nvidia gpu to compile darknet" note
+
+--------12/18/2019 yolo3 darknet damon mode  ---------
+
+use daemon mode in launch_yolotest.sh, ~/labelImg/testyolo.py
+
+open... the "detector test ..." running mode is almost ready for this. if no image file provide at cmd line, it will keep asking the filename without reloading
+the weights`
+
+add testudp mode to detector.c , to test, run below, and use udpsnd.py to send filename, send quit to stop.
+
+---detect udp
+	./darknet detector testudp /media/student/code1/darknet/tagreal/darknet_tagreal.data /media/student/code1/darknet/tagreal/darknet-yolov3.cfg /media/student/code1/darknet/backup-tagreal/darknet-yolov3.backup 
+
+------12/13/2019 darknet imagenet classifiers -----------
+https://pjreddie.com/darknet/imagenet/#darknet19_448
+
+------12/13/2019 darknet yolo2 training  -----------
+https://pjreddie.com/darknet/yolov2/
+	yolov2-voc.weights
+	yolov2-voc.cfg
+
+---train---:
+./darknet detector train cfg/voc.data weights-trained/yolov2-voc.cfg weights-trained/darknet19_448.conv.23
+	train from a pretrained conv layers (first 23 layers)
+./darknet detector traincfg/voc.data weights-trained/yolov2-voc.cfg backup/yolov2-voc.backup
+	train from previous result
+
+	result will be put backup, so make symb link
+
+---detect---:
+if compiled with GPU, don't use -nogpu for detection. will cause >100% prob
+	in the results.
+	if has to use -nogpu, use darket.cpu which is compiled without gpu
+
+./darknet detect weights-trained/yolov2-voc.cfg weights-trained/yolov2-voc.weights data/dog.jpg
+
+./darknet detect weights-trained/yolov2.cfg weights-trained/yolov2.weights data/dog.jpg
+
+./darknet detector test cfg/voc.data cfg/yolov2-voc.cfg backup/yolov2-voc.backup data/dog.jpg -nogpu
+
+./darknet detect cfg/yolov2.cfg weights-trained/yolov2.weights data/dog.jpg -nogpu
+	lots of box, > 100%, so nogpu code not correct? this also happen for yolov3,
+	might because the code is compiled with GPU, so when run nogpu it mess up?
+	this seems the case.
+./darknet detect cfg/yolov2.cfg weights-trained/yolov2.weights data/dog.jpg 
+	perfect result
+
+note yolov2.weights not same as yolov2-voc.weights
+	yolov2 detection layer(region) 80 classes
+	yolov2-voc detection layer(region) 20 classes
+	max epochs: 80000 vs 500000 (yolov2-voc)	
+
+	cfg/voc.data says 20 classes, if train with volov2.cfg, which has 80 claasses on detection layer, that is mismatch. if 80 classes, much more time 
+for training I guess. that is probably why yolov2.cfg max epochs is 500200
+
+	as for detection, yolov2.weights is good, yolov2-voc.weight wrong label. 	but the consistant seems.	
+
+------12/13/2019 darknet yolo1 training  -----------
+
+https://pjreddie.com/darknet/yolov1/
+
+---detect---:
+./darknet yolo test cfg/yolov1.cfg weights-trained/yolov1.weights data/dog.jpg
+	warning: has to use "yolo test" instead of "detect" as in yolo2/3 cases
+
+---train---:
+./darknet yolo train cfg/yolov1/yolo.train.cfg extraction.conv.weights
+
+--- get feature conv weights from trained weights file---
+./darknet partial cfg/extraction.cfg extraction.weights extraction.conv.weights 24
+
+cfg/extraction.cfg vs cfg/yolov1.cfg
+almost the same, image size 224 vs 448
+		yolov1 replace the last 3 layers of extraction.cfg
+		with yolov1 stuff
+wget http://pjreddie.com/media/files/extraction.weights
+
+-----12/13/2019 msi ub16 darknet yolo3 training ----------
+retraing using voc data set
+
+https://pjreddie.com/darknet/yolo/
+
+---detect---:
+if compiled with GPU, don't use -nogpu for detection. will cause >100% prob
+	in the results.
+	if has to use -nogpu, use darket.cpu which is compiled without gpu
+
+(1) ./darknet detect cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg
+	it will use cfg/coco.data for displaying the detected label
+	correct label
+
+(2.1) ./darknet detector test cfg/voc.data cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg 
+	wrong label 
+	as volov3.weights is trained with coco.data class	
+(2.2) ./darknet detector test cfg/voc.data cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg -nogpu
+	wrong label, >100%
+ 
+(2.3) ./darknet.cpu detector test cfg/voc.data cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg -nogpu
+	wrong label, normal %
+ 
+(3.1) ./darknet detector test cfg/coco.data cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg 
+	correct label, normal %
+(3.2) ./darknet detector test cfg/coco.data cfg/yolov3.detector.cfg weights-trained/yolov3.weights data/dog.jpg -nogpu
+	correct label, > 100%
+
+(4.1) ./darknet.cpu detector test cfg/voc.data cfg/yolov3.cfg backup/yolov3.backup data/dog.jpg -nogpu
+	correct label, normal %
+	locally trained using voc.data
+(4.2) ./darknet detector test cfg/voc.data cfg/yolov3.detector.cfg backup/yolov3.backup data/dog.jpg 
+	correct label, normal %
+	locally trained using voc.data
+
+	it will use cfg/voc.data to display the detected label
+	assume the yolov3.back is trained with cfg/voc.data as label name
+	the stock yolov3.weights is trained with coco data set (80 classes)
+	if use stock yolov3.weights here, it will again display wrong label name
+
+---train---:
+-*- current, lose drop to about 2 after 500 epochs, then it kind stall, so far
+	at 3500 epochs.
+./darknet detector train cfg/voc.data cfg/yolov3.cfg darknet53.conv.74
+	results: 
+	backup-yolov3.cfg/yolov3_200weights
+	log file:
+		train_yolov3.log
+
+--- original train cmd in website yolo with voc data, 
+./darknet detector train cfg/voc.data cfg/yolov3-voc.cfg darknet53.conv.74
+	result:
+	backup-yolov3-voc.cfg/yolov3-voc_200.weights
+	log file:
+		train_yolov3-voc.log
+
+to continute training from previous result:
+./darknet detector train cfg/voc.data cfg/yolov3.cfg backup/yolov3.backup > train_yolov3.log
+./darknet detector train cfg/coco.data cfg/yolov3.cfg backup/yolov3.backup
+
+yolov3.cfg and volov3-voc.cfg
+	classes =80 vs 20
+	input image size 608 vs 416
+	conv layer before yolo's filters= 255 vs 75
+	yolo's ignore_thresh = 0.7 vs .5
+	yolov3-xxx.weights size  248007048 vs 246714648
+
+cfg/yolov3.cfg work well with the pre-trained yolov3.weights
+but cfg/yolov3-voc.cfg will not, obviously.
+
+--------12/11/2019 msi ub16 darknet yolo code reading------
+
+extraction.cfg = yolov1.cfg feature extraction part
+darknet19.cfg = yolov2.cfg's feature extraction part
+darknet53.cfg = yolov3.cfg feature part
+
+yolov1/2/3 are completely described by their layer function. eg, yolov1 last
+layer is detection, see detection_layer.c for how forward and backward prop 
+are define. same for all layers. 
+
+yolov2 last few layers use conv, route, reorg, region. particularly region_layer.c, this is where anchor etc are done.
+
+yolov3 last few layers use route, yolo, upsample. yolo_layer.c is similar to region_layer.c in yolov2.
+
+wget https://pjreddie.com/media/files/darknet53.conv.74 -O ~/darknet/darknet53.conv.74
+wget https://pjreddie.com/media/files/yolov1.weights
+wget https://pjreddie.com/media/files/yolov2.weights
+wget https://pjreddie.com/media/files/yolov3.weights
+
+code flow:
+----------
+detector.c:
+
+darknet detect .....
+        will call test_detector()
+                network_predict(net,X) ... 37 secs, do forward calculation
+                get_network_boxes() (network.c)
+                        fill_network_boxes() (network.c), this func go through
+                        all layers, if the layer is YOLO or REGION or DETECTION,
+                        which corresponding to yolo3,2,1, it will count the boxes
+                        get_region_detections() (for yolo2), this get 1805 boxes
+                        do_nms_sort() (box.c) sort all boxes with objectness==0 and less than threshold prob
+                        draw_detection() (image.c) go through the 1805 box and print those with dets[i].prob[j] > thresh, here i is index of the box, j index classes. for each box, the data structure have probability for all 20 classes. the prob is maxpooled most likely:
+
+darknet detector ...
+        will call run_detector()
+
+--------12/8/2019 msi ub16 setup nvidia gpu to compile darknet------
+use sda8 clone
+	---cuda 9.1 installed, cudnn 7 installed
+	---cuda example /media/student/cuda/cuda/...make good, example good.
+	--- instruction see "ubuntu16.04安装系统和驱动和必要软件"
+
+test with darknet: change darknet/Makefile GPU=1 CUDNN=1
+
+/media/student/code1/darknet$ ./darknet detect cfg/yolov3.cfg yolov3.weights Original.jpg
+---0.089 seconds, compare to 40 second with cpu
+there was CUDA Error: out of memory
+darknet: ./src/cuda.c:36: check_error: Assertion `0' failed.
+My solution to run Yolov3 perfectly was to : modify the cfg/yolov3.cfg :
+batch=1
+subdivisions=1
+width=416
+height=416
+
+--------12/15/2019 yolo3 darknet obj detection tagreal ---------
+	train results: backup-tagreal
+	ln -s backup-tagreal backup
+
+----train from scratch:
+	./darknet detector train tagreal/darknet_tagreal.data tagreal/darknet-yolov3.cfg ./darknet53.conv.74 > train-tagreal.log
+----train from last run:
+	./darknet detector train tagreal/darknet_tagreal.data tagreal/darknet-yolov3.cfg backup/darknet-yolov3.backup > train-tagreal.log
+
+----detect:
+	./darknet detector test /media/student/code1/darknet/tagreal/darknet_tagreal.data /media/student/code1/darknet/tagreal/darknet-yolov3.cfg /media/student/code1/darknet/backup-tagreal/darknet-yolov3.backup /media/student/code1/darknet/data/frame0000.jpg
+
+	result:Loading weights from /media/student/code1/darknet/backup-tagreal/darknet-yolov3.backup...Done!
+/media/student/code1/darknet/data/frame0000.jpg: Predicted in 0.052880 seconds.
+tag: 100%
+
+	simple image and box test
+#usage: python showImgBox.py
+#tensorflow box:  ymin, xmin, ymax, xmax = box
+#yolo box: x,y,w,h 0.55 .42 .12 .58 xmin=0.49 xmax=.61 ymin=.13 ymax=71 
+
+	convert label xml to yolo label format
+	xml2yolobox.py
+
+--------12/7/2019 yolo3 customize obj detection snowman---------
+https://www.learnopencv.com/training-yolov3-deep-learning-based-custom-object-detector/
+This use darknet framework to train. 
+
+Code src: In msi laptop, ...code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector,
+After download code, setup files, run this:
+
+	---./darknet detector train /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/darknet.data /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/darknet-yolov3.cfg ./darknet53.conv.74 > train.log,
+
+Currently darknet is compiled with nogpu, so it is very slow, take 25 minutes to run 1 epoch.
+1: 3334.077148, 3334.077148 avg, 0.000000 rate, 1659.014360 seconds, 64 images
+
+now run it again with gpu installed, msi sda8
+	report out of memory again, change /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/darknet-yolov3.cfg
+		batch=32
+		subdivisions=16
+
+
+grep "avg" /path/to/snowman/train.log
+show train result
+python3 plotTrainLoss.py train.log
+
+test
+./darknet detector test /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/darknet.data /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/darknet-yolov3.cfg /media/student/code1/darknet/snowman/learnopencv/YOLOv3-Training-Snowman-Detector/weights/darknet-yolov3_5000.weights ~/snowman2.jpg
+
+python3 object_detection_yolo.py --image=snowmanImage.jpg
+/
+---------11/12/2019 object detection yolo -----------------
+
+	three repo related yolo are added: one original (darknet), two
+	reimpl under tensorflow. 
+
+add three folders that use yolo under code1/
+        darknet---- original yolo implementation, in darknet framework, c code
+                        slow? can train and detect, yolo_v1,2,3. usage
+			see examples/darknet.c
+		/media/student/code1/darknet this runs quite slow with nogpu
+		./darknet -nogpu detect cfg/yolov3.cfg yolov3.weights Original.jpg
+			Loading weights from yolov3.weights...Done!
+			Original.jpg: Predicted in 47.012736 seconds.
+			bird: 98%
+
+        yolo_v3-tensorflow-ipynb --- reimpl under tensorflow framework, can use
+                                        pretrained parameter yolov3.weights,
+                                        test.py is created from the original
+                                        notebook. runs with python3
+        tensorflow-yolo-v3       --- another yolo imp under tensorflow framework
+                                  not work with cpu version, supposely work gpu
+                                        version. has utility convert yolov3.weight to frozen graph in tensorflow
+
+---------11/12/2019 obj_video_droneimg3-----------------
+python3 obj_video_droneimg3.py testimg ssd_mobilenet_v2_coco_2018_03_29 mscoco_label_map.pbtxt True
+
+detect objects from all images under testimg/image_raw, one by one. use ssd
+frozen graph
+
+--------10/3/2019 retest tensorflow retrain steps : apriltag---
+msi, partition 9
+	(A)
+	run irisgazebo simulation, get rosbag file, extract frames 
+	cd /media/student/code1/tensorflow video/
+	cp -r tensorflow_p3dx_mobilenet_detector tensorflow_tag_mobilenet_detector
+	cp frames to images subfolder and annotate [2]
+		the annotate button semi automate this process
+	cd tensorflow_p3dx_mobilenet_detector, run train [3].(4)
+	cd tensorflow_p3dx_mobilenet_detector, run eval [3].(5)
+
+	(B)
+        tensorboard viewing result:
+         cd code1/..xxx/tensorflow_p3dx_mobilenet_detector;
+         export PYTHONPATH= (opt if tensorboard error about some symbol ...)
+         tensorboard --logdir=train
+         browser: localhost:6006
+
+	(C)
+	export and frozen model	[4]
+		PIPELINE_CONFIG_PATH=tensorflow_tag_mobilenet_detector/train/pipeline.config
+		TRAINED_CKPT_PREFIX=tensorflow_tag_mobilenet_detector/train/model.ckpt-209180
+		EXPORT_DIR=tensorflow_tag_mobilenet_detector/train/frozen
+
+	(D)
+	deploy obj_detect_node2.py
+ref: 
+     [1] launch_uavcam.sh help file 10/1/2019 note, extract_frame
+     [2] 10/30/18: I- IV	
+     [3] 11/13/18-1: step 1-5a
+     [4] 11/7/18 
+
+----------12/21/18 tensorflow box detected ---------------------
+the obj detection return a bounding box:
+encoded as [y_min, x_min, y_max, x_max]
+example: bounding box is [0.1, 0.2, 0.5, 0.9], the upper-left and bottom-right coordinates of the bounding box will be (40, 10) to (180, 50) (in (x,y) coordinates). assuming 100x200 image.
+
+the upper left coner is (0,0), same as conventional image pixel coordination
+frame.
+
+---------11/14/18 pose estimate from image and pose ----
+
+ardrone1_match.py
+
+    data file:
+        mavros1_local_pose.txt
+        ardrone1_img_head.txt
+        ardrone1/ardrone1_det_rst.txt
+
+---------11/13/18-1 tensorflow train with mobilenet and inception ----
+        for mobilenet, use model_main.py as:
+        (1) cd ..xxx/tensorflow_p3dx_mobilenet_detector
+        (2) copy model_main.py from object_detection/ if needed
+        (3) edit model_main.py by adding tf.logging.set_verbosity(tf.logging.INFO) after imports in model_main.py
+        (4)
+python model_main.py --pipeline_config_path=mobilenet_pipeline.config  --model_dir=train --alsologtostderr
+        (5) eval:
+                python eval.py --logtostderr --pipeline_config_path=mobilenet_pipeline.config --checkpoint_dir=train --eval_dir=eval
+
+        for inception: use model_main.py
+        (3) edit pipeline.config: override_base_feature_extractor_hyperparams: true if use ssd_inception_v2 as feature extractor (default). see issue resolved.
+        (4) train: model_dir point to checkpoint train2
+         python model_main.py --pipeline_config_path=pipeline_inception.config  --model_dir=train2 --alsologtostderr
+        (5) eval: checkpoint_dir point to checkpoint, also indicating this is
+                evaluation only. --model_dir point to eval to hold result.
+        python model_main.py   --logtostderr -pipeline_config_path=pipeline_inception.config --checkpoint_dir=train2 --model_dir=eval --alsologtostderr
+
+        see "tensorflow video"/README.md
+        note: model_main.py is not verbose so will not show training loss info
+                unless step (4)
+                inception pipeline not work even with model_main.py, change
+                feature extraction to ssd_mobilenet_v2 seems work. batch size
+                change from 24 to 1 for memory saving.
+
+        issue resolved:
+                pipeline_inception.config uses ssd_inception_v2 for feature
+                extraction report error. this is resolved by two methods:
+                (a) changing feature extractor to ssd_mobilenet_v2. this is
+                trained using folder train/
+                (b) A better solution is to set
+                override_base_feature_extractor_hyperparams: true
+                and train from original model-check* in train2.
+                warning: if use (b) but model_dir=train, an error will occur
+                since it is trying to use a new checkpoint in train/, which
+                is trained using ssd_mobilenet_v2 as feature extractor, so
+                it is a mismatch with the pipeline config file.
+
+---------11/13/18 train.py vs model_main.py -----------
+
+	train.py is legacy, 
+		work with faster_rcnn_resnet101 
+	model_main.py is newer: works with ssd 
+		mobilenet_v2 and inception_v2
+		edit model_main.py by adding tf.logging.set_verbosity(tf.logging.INFO)
+
+	usually train.py will complain about " Incompatible shapes: [2,1917] vs. [3,1]", after it start queue, for both mobilenet and inception.
+	
+
+        note: model_main.py is not verbose so will not show training loss info
+                unless step (4)
+                inception pipeline not work even with model_main.py, change
+                feature extraction to ssd_mobilenet_v2 seems work. batch size
+                change from 24 to 1 for memory saving.
+        issue remain:
+                why pipeline_inception can not use inception_v2 for feature?
+
+----------11/12/2018 model/label option to use frozen graph  ------
+./obj_video_droneimg.sh -d p3dx_frozen -l toy_label_map.pbtxt
+
+files:
+	tensorflow video/obj_video_droneimg.py
+	tensorflow video/obj_video_droneimg.sh
+
+--------- 11/9/18  retrained inception model and test -----
+TBD
+--------- 11/8/18  two ways to using tf trained model from frozen or checkpoint-----
+	(1) tensorflow_p3dx_mobilenet_detector/eval.py
+		load model and eval use .config, which spec checkpoint
+		many steps automated such as loading test data
+		and generating result/report
+		pair with tensorboard to see result.
+	(2) rqt_mypkg/scripts/obj_detect_node.py
+		load model from frozen graph.
+		more control to feed the data and show result
+issue:
+	retrained mobilenet frozen graph is twice the size (bytes)
+	and much slower.
+
+--------- 11/7/18 export retrained model to frozen -----
+ub16_tensorflow
+~/bin/tf_export.sh
+	this will create a frozen pb file from a checkpoint (typically in train
+		directory)
+		it generate a folder in object_detection folder
+	must run from ~/tensorflow/models-master/research
+	create a link: for access data with relative path
+		ln -s /media/student/code1/tensorflow\ video/tensorflow_p3dx_detector tensorflow_p3dx_detector
+	then edit tf_export.sh accordingly
+	INPUT_TYPE=image_tensor
+	PIPELINE_CONFIG_PATH=ssd_inception_v2_coco_2018_01_28/pipeline2.config
+	TRAINED_CKPT_PREFIX=ssd_inception_v2_coco_2018_01_28/model.ckpt
+	EXPORT_DIR=object_detection/inception_frozen
+	python object_detection/export_inference_graph.py \
+    		--input_type=${INPUT_TYPE} \
+    		--pipeline_config_path=${PIPELINE_CONFIG_PATH} \
+    		--trained_checkpoint_prefix=${TRAINED_CKPT_PREFIX} \
+    		--output_directory=${EXPORT_DIR}
+
+results and issues:
+	the frozen model from p3dx also work with the obj_detect_node.py
+	but it is much slower than the faster_rcnn frozen model
+	inception is faster than faster_rcnn, says model zoo, confirmed
+	mobilenet also fast, but export problem.
+	the label file does not affect the detection, just the labeling part.
+		so we can just edit the label file to make a quick hack:
+		edit label entry for "traffic light" to "p3dx" will make 
+		faster_rcnn appearing to be trained to detect p3dx.
+
+exported frozen graph:
+	~/tensorflow/.../object_detection/data
+					/inception_frozen
+					/p3dx_frozen
+					/ssd_mobilenet_v2_coco_2018_03_29
+
+--------- 11/6/18 spin off obj_video_droneimg.py to ros node-----
+	-- create obj_detect_node.py	
+	-- to detect and display rostopic image
+	-- the node will be placed under rqt_mypkg
+	-- make sure only initiate session one time, don't do it for
+		each image. otherwise overhead high and slow, see code
+		    with detection_graph.as_default():
+		        with tf.Session(graph=detection_graph) as sess:
+           			while not rospy.is_shutdown():
+		the while loop must be inside.
+	-- rosrun rqt_mypkg obj_detect_node.py
+	it only need two model related files: the frozen model .pb file
+		and the mscoco_label_map.pbtxt
+
+-----------10/30/18 tensorflow detection retrain existing model -----------------
+see 7/9/18 retrain note for general testing procedure.
+this also cover the case when new data is added to existing training data set
+	to retrain.
+this note start a new retrain using ardrone1 frames containing p3dx.
+	(1) prepare training data set and eval data set.
+		put all (new) jpg images to folder "images", new images should
+		have different filename (by using a proper prefix)
+		(I) annotations:
+		mkdir annotations. (if adding new data, only need to annotate
+			the new images)
+		cd ~/labelImg, ./labelImg, click "change save dir" and select
+			"annotations" folder under /media/student/code1/
+			tensorflow video/tensorflow_p3dx_detector
+			click "open dir" to the "images" folder
+			then go through all images create box around objs,
+			in this example we use two new labels : "p3dx" and
+			"drone"
+		(II) create file: toy_label_map.pbtxt
+		(III) create file: tensorflow_p3dx_detector/trainval.txt\
+		(IV) convert data record:
+			python create_pet_tf_record.py
+			this will generate pet_train.record 
+					   pet_val.record
+		(V) run training: (train.py model_main.py eval.py all from 
+			object_detection/[legacy]
+			(V.1) download a frozen model, and
+			copy frozen model's model.ckpt.* to the train/
+			(V.2) edit .config file accordinly
+		          (a) python train.py   --logtostderr -pipeline_config_path=faster_rcnn_resnet101_coco.config     --train_dir=train
+		          (b) python model_main.py   --logtostderr -pipeline_config_path=mobilenet_pipeline.config     --train_dir=train2
+			11/13/18: not working (new pc)
+		          (c) python model_main.py   --logtostderr -pipeline_config_path=pipeline_inception_v2.config     --train_dir=train
+			11/13/18: not working (new pc), using train.py end up with "Incompatible shapes: [2,1917] vs. [3,1]", using model_main.py it get stuck
+at use: AVX2 FMA, and not continue.
+			(V.3) do not mix .config and ckpt files from different
+				model. the pipeline.config from the frozen model
+				is edited.
+				the mobilenet config pipeline 
+				is still being tested, ub16_tensorflow, hpelite
+			(V.4) the training error after several training steps
+			step 10: loss = 11.6917 (0.412 sec/step)
+			step 11: loss = 11.7478 (0.413 sec/step)
+			: Incompatible shapes: [2,1917] vs. [3,1]
+	
+		(VI) run evaluation: see (b)
+		
+old summery for quick testing steps:
+	(a) cd /media/.../tensorflow_toy_detector
+	(b) python eval.py --logtostderr --pipeline_config_path=\
+faster_rcnn_resnet101_coco.config --checkpoint_dir=train --eval_dir=eval
+	(c) @another terminal, 
+    		tensorboard --logdir=eval
+	(d) view results: http://localhost:6006/#graphs&run=.
+
+
+----------10/28/2018 extract image , head, pose from rosbag, obj detection -----
+/media/student/code1/tensorflow video
+	(1) python obj_video_droneimg.sh ardrone1 
+		-this script extract frames from bag, then run cnn to detect obj
+		the ardrone1/image_raw/ is where testing image are saved.
+		the results are frame0143.jpg_detect.jpg
+		and ardrone1/ardrone1_det_rst.txt
+	(2) rosbag/extract_pose_etc.sh
+		- this extract pose info
+files: code
+	(1.1)./extract_frames_frombag.sh
+		--- this extract frames from bag
+	(1.2)obj_video_droneimg.py
+		--- use pretrained tensorflow model to detect obj and 
+		generate detection result file.
+	(1.1.1)image_extract_frombag.launch 
+		-> /media/student/code2/rosbag/image_extract_frombag.launch
+	(2.1) rosbag/imagetopic_head_frombag.launch
+	(2.1.1) imagetopic_head.py
+		 -> /home/student/turtlebot/src/rqt_mypkg/scripts/imagetopic_head.py
+
+files: data
+rosbag/ardrone1_img_head.txt     rosbag/mavros2_global_local.txt
+rosbag/ardrone2_img_head.txt     rosbag/mavros2_local_pose.txt
+rosbag/mavros1_global_local.txt  rosbag/mavros1_local_pose.txt
+rosbag/ardrone1/ardrone1_img_head.txt 
+rosbag/ardrone2/ardrone2_img_head.txt 
+
+-----------------10/27/18 extrac frames and encode to video from bag---------
+	jpg_to_mp4.sh 
+		-> /media/student/code2/rosbag/jpg_to_mp4.sh
+
+-----------------10/27/18 get a rosbag from gazebo drone img topic---------
+@new amd computer, ub14 current partition:
+	px4simsilt-1.5.5...a
+	add something you want to video record on gazebo
+	use joystick to fly
+	rosbag record
+
+---------10/27/2018 extract frame from mp4 video-----
+
+ffmpeg -i p3dx_video.mp4 frames%d.jpg
+mkdir images; mv frame* images
+to select some frames for training, (such as every 10 frames), create a list
+(using excel) file.txt, then:
+mkdir new_folder
+for file in $(<file.txt); do cp "$file" new_folder; done
+
+-----------10/27/18 ub16 tensorflow, object_detection models, install tips -----------------------
+these are two installation process for ub16:
+   tensorflow:
+	sudo apt-get install libcupti-dev
+	wget https://github.com/google/protobuf/releases/download/v3.3.0/protoc-3.3.0-linux-x86_64.zip
+	unzip protoc-3.3.0-linux-x86_64.zip  -d protoc330
+		add ~/protoc330/bin/ to .bashrc PATH
+	sudo apt install python-dev python-pip
+	sudo pip install --ignore-installed enum34
+	pip install --upgrade tensorflow
+	python -c "import tensorflow as tf; print(tf.__version__)"
+	sudo pip install moviepy
+	sudo pip install requests
+
+   object_detection models:
+	https://github.com/tensorflow/models.git (or download zip)
+	pip install --user Cython
+	pip install --user contextlib2
+	pip install --user pillow
+	pip install --user lxml
+	pip install --user jupyter
+	pip install --user matplotlib	
+	git clone https://github.com/cocodataset/cocoapi.git
+	cd cocoapi/PythonAPI
+	make
+	cp -r pycocotools <path_to_tensorflow>/models/research/
+	assuming installed at ~/tensorflow/models/research/
+		.bashrc
+		export PYTHONPATH=$PYTHONPATH:~/tensorflow/models/research/:~/tensorflow/models/research/slim
+		or
+		export PYTHONPATH=$PYTHONPATH:~/tensorflow/models-master/research/::~/tensorflow/models-master/research/slim
+	python object_detection/builders/model_builder_test.py
+	
+-----------7/9/18 jupyter notebook tensorflow video -------------------------
+Try notebook in /media.../code1/tensorflow-video
+See webpage: https://towardsdatascience.com/is-google-tensorflow-object-detection-api-the-easiest-way-to-implement-image-recognition-a8bd1f500ea0
+https://github.com/priya-dwivedi/Deep-Learning
+
+To run the notebook, /usr/bin/pip install moviepy
+open terminal, cd /media .../tensorflow-video/; jupyter notebook; 
+A webpage will open and navigate to  Object_Detection_Tensorflow_API.ipynb
+The notebook run cell by cell, several paths must to fixed to point to the files in my object_detection folder , if a cell contain error, you can fix and rerun that cell, then continue the rest of cells.
+youtube-dl https://www.youtube.com/watch?v=ytuCzChCSs4
+Change to video1.mp4	
+
+-----------7/9/18 tensorflow toy detection retrain from existing model -------------------------
+https://towardsdatascience.com/building-a-toy-detector-with-tensorflow-object-detection-api-63c0fdf2ac95
+https://github.com/priya-dwivedi/Deep-Learning
+Toy detection example:
+/media/student/code1/tensorflow-video/Deep-Learning/tensorflow_toy_detector
+The stuff from github is not complete, specifically, it does not have .config file and the 
+trained model
+Trained Models 
+https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md
+	Ssd_mobilenet_v2_coco_2018_03_29.tar.gz
+		Model.ckpt,frozen_inference_graph.pb
+Test run toy detection: 
+(1) Download the trained model: faster_rcnn_resnet101_coco_2018_01_28.tar.gz
+	http://download.tensorflow.org/models/object_detection/faster_rcnn_resnet101_coco_2018_01_28.tar.gz
+
+	/media/student/code1/faster_rcnn_resnet101_coco_2018_01_28
+(2) Cp ~/tensorflow-sample/models/research/object_detection/samples/
+	configs/faster_rcnn_resnet101_coco.config to 
+	/media/student/code1/tensorflow-video/Deep-Learning/tensorflow_toy_detector
+
+(3) Edit faster_rcnn_resnet101_coco.config to fix paths and num_examples: 8 to limit the run time of eval. Note the eval.py loop forever, runs num_examples each time and wait some time. It keep checking new checkpoint files for evaluation. Each example requires 4 second for this setup (y520)
+
+(4) cd /media/student/code1/tensorflow-video/Deep-Learning/tensorflow_toy_detector$
+     for later version of object_detection, need to edit train.py as train.py.new
+	to contain this "from object_detection.legacy import trainer",
+	same for eval.py
+     Run train:
+	python train.py     --logtostderr -pipeline_config_path=\
+faster_rcnn_resnet101_coco.config     --train_dir=train
+     Run eval:
+	the eval.py must be modified to change input_config to input_config[0] at
+		several place, on the 10/27/18 installation on ub16, as eval.py.new
+
+	python eval.py --logtostderr --pipeline_config_path=\
+faster_rcnn_resnet101_coco.config --checkpoint_dir=train --eval_dir=eval
+(5)
+
+Run tensorboard to view results:
+    tensorboard --logdir=eval
+
+http://localhost:6006/#graphs&run=.
+
+This repository contains deep learning related projects I did as part of Kaggle submissions or for Udacity's Deep Learning Foundations Nano Degree.
+
+Projects Outline
+
+* Kaggle Fisheries - Keras convolution neural network developed to predict fish types for Kaggle competition
+https://www.kaggle.com/c/the-nature-conservancy-fisheries-monitoring
+
+* Image Classification - CIFAR
+Work done as part of Udacity's deep learning foundations nano degree

@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
-
-import numpy as np
 import tensorflow as tf
+#from tensorflow.compat.v1 import ConfigProto
+#from tensorflow.compat.v1 import InteractiveSession
+
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+session = tf.InteractiveSession(config=config)
+import numpy as np
 from PIL import Image
 import time
 
@@ -69,6 +74,8 @@ def main(argv=None):
             t0 = time.time()
             detected_boxes = sess.run(
                 boxes, feed_dict={inputs: [img_resized]})
+            print('detection complete, box:')
+            print(detected_boxes)
 
     else:
         if FLAGS.tiny:
@@ -92,6 +99,7 @@ def main(argv=None):
                 boxes, feed_dict={inputs: [img_resized]})
 
     filtered_boxes = non_max_suppression(detected_boxes,
+                                         #confidence_threshold=0.01,
                                          confidence_threshold=FLAGS.conf_threshold,
                                          iou_threshold=FLAGS.iou_threshold)
     print("Predictions found in {:.2f}s".format(time.time() - t0))
